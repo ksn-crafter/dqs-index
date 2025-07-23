@@ -81,8 +81,8 @@ public class DqsIndexGenerator {
 
       if (writer.segmentInfos.size() > 1) {
         System.out.println("$$$$$$$##########");
-        //we will get a bunch of binary files here
-        //upload them to s3
+        //TODO: we will get a bunch of binary files here, upload them to s3
+
         List<IndexOutput> outputs = writer.segmentInfos.writeSeparateSegmentsNFiles(writer.directory);
         writer.directory.syncMetaData();
         writer.directory.sync(outputs.stream().map(IndexOutput::getName).collect(Collectors.toList()));
