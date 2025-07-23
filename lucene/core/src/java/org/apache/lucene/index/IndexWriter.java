@@ -264,7 +264,7 @@ public class IndexWriter
   private final AtomicReference<Throwable> tragedy = new AtomicReference<>(null);
 
   private final Directory directoryOrig; // original user directory
-  private final Directory directory; // wrapped with additional checks
+  public final Directory directory; // wrapped with additional checks
 
   // increments every time a change is completed
   private final AtomicLong changeCount = new AtomicLong();
@@ -280,7 +280,7 @@ public class IndexWriter
 
   private Collection<String> filesToCommit;
 
-  private final SegmentInfos segmentInfos;
+  public final SegmentInfos segmentInfos;
   final FieldNumbers globalFieldNumberMap;
 
   final DocumentsWriter docWriter;

@@ -49,14 +49,13 @@ import org.apache.lucene.util.StringHelper;
 import org.apache.lucene.util.Version;
 
 /**
- * A collection of segmentInfo objects with methods for operating on those segments in relation to
- * the file system.
+ * A collection of segmentInfo objects with methods for operating on those segments in relation to the file system.
  *
  * <p>The active segments in the index are stored in the segment info file, <code>segments_N</code>.
- * There may be one or more <code>segments_N</code> files in the index; however, the one with the
- * largest generation is the active one (when older segments_N files are present it's because they
- * temporarily cannot be deleted, or a custom {@link IndexDeletionPolicy} is in use). This file
- * lists each segment by name and has details about the codec and generation of deletes.
+ * There may be one or more <code>segments_N</code> files in the index; however, the one with the largest generation is
+ * the active one (when older segments_N files are present it's because they temporarily cannot be deleted, or a custom
+ * {@link IndexDeletionPolicy} is in use). This file lists each segment by name and has details about the codec and
+ * generation of deletes.
  *
  * <p>Files:
  *
@@ -65,7 +64,7 @@ import org.apache.lucene.util.Version;
  *       MinSegmentLuceneVersion, &lt;SegName, SegID, SegCodec, DelGen, DeletionCount,
  *       FieldInfosGen, DocValuesGen, UpdatesFiles&gt;<sup>SegCount</sup>, CommitUserData, Footer
  * </ul>
- *
+ * <p>
  * Data types:
  *
  * <ul>
@@ -85,7 +84,7 @@ import org.apache.lucene.util.Version;
  *       DataOutput#writeSetOfStrings(Set) Set&lt;String&gt;}&gt;
  *   <li>Footer --&gt; {@link CodecUtil#writeFooter CodecFooter}
  * </ul>
- *
+ * <p>
  * Field Descriptions:
  *
  * <ul>
@@ -139,7 +138,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   /** Opaque Map&lt;String, String&gt; that user can specify during IndexWriter.commit */
   public Map<String, String> userData = Collections.emptyMap();
 
-  private List<SegmentCommitInfo> segments = new ArrayList<>();
+  public List<SegmentCommitInfo> segments = new ArrayList<>();
 
   /**
    * If non-null, information about loading segments_N files will be printed here.
@@ -164,8 +163,8 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   /**
    * Sole constructor.
    *
-   * @param indexCreatedVersionMajor the Lucene version major at index creation time, or 6 if the
-   *     index was created before 7.0
+   * @param indexCreatedVersionMajor the Lucene version major at index creation time, or 6 if the index was created
+   *     before 7.0
    */
   public SegmentInfos(int indexCreatedVersionMajor) {
     if (indexCreatedVersionMajor > Version.LATEST.major) {
@@ -184,9 +183,141 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
     return segments.get(i);
   }
 
+ /**
+  * This method will ensure that each segment within an index
+  * is written as an individual segment so that each segment
+  * becomes searchable independently
+  * **/
+  public List<IndexOutput> writeSeparateSegmentsNFiles(Directory directory) throws IOException {
+    List<IndexOutput> outputs = new ArrayList<>();
+
+    // write infos
+    long counter = this.generation - 1;
+    for (SegmentCommitInfo siPerCommit : this) {
+      IndexOutput out =
+          directory.createOutput(String.format("segments_%d_part_%d", this.generation, counter), IOContext.DEFAULT);
+      System.out.println("Inside writeSeparateSegmentsNFiles .. indexoutput = " + out.getClass());
+      System.out.println("Inside writeSeparateSegmentsNFiles .. indexoutput = " + out.getName());
+
+      counter += 1;
+      this.writeHeader(out);
+
+      SegmentInfo si = siPerCommit.info;
+      if (indexCreatedVersionMajor >= 7 && si.minVersion == null) {
+        throw new IllegalStateException(
+            "Segments must record minVersion if they have been created on or after Lucene 7: "
+                + si);
+      }
+      out.writeString(si.name);
+      byte[] segmentID = si.getId();
+      if (segmentID.length != StringHelper.ID_LENGTH) {
+        throw new IllegalStateException(
+            "cannot write segment: invalid id segment="
+                + si.name
+                + "id="
+                + StringHelper.idToString(segmentID));
+      }
+      out.writeBytes(segmentID, segmentID.length);
+      out.writeString(si.getCodec().getName());
+
+      CodecUtil.writeBELong(out, siPerCommit.getDelGen());
+      int delCount = siPerCommit.getDelCount();
+      if (delCount < 0 || delCount > si.maxDoc()) {
+        throw new IllegalStateException(
+            "cannot write segment: invalid maxDoc segment="
+                + si.name
+                + " maxDoc="
+                + si.maxDoc()
+                + " delCount="
+                + delCount);
+      }
+      CodecUtil.writeBEInt(out, delCount);
+      CodecUtil.writeBELong(out, siPerCommit.getFieldInfosGen());
+      CodecUtil.writeBELong(out, siPerCommit.getDocValuesGen());
+      int softDelCount = siPerCommit.getSoftDelCount();
+      if (softDelCount < 0 || softDelCount > si.maxDoc()) {
+        throw new IllegalStateException(
+            "cannot write segment: invalid maxDoc segment="
+                + si.name
+                + " maxDoc="
+                + si.maxDoc()
+                + " softDelCount="
+                + softDelCount);
+      }
+      CodecUtil.writeBEInt(out, softDelCount);
+      // we ensure that there is a valid ID for this SCI just in case
+      // this is manually upgraded outside of IW
+      byte[] sciId = siPerCommit.getId();
+      if (sciId != null) {
+        out.writeByte((byte) 1);
+        assert sciId.length == StringHelper.ID_LENGTH
+            : "invalid SegmentCommitInfo#id: " + Arrays.toString(sciId);
+        out.writeBytes(sciId, 0, sciId.length);
+      } else {
+        out.writeByte((byte) 0);
+      }
+
+      out.writeSetOfStrings(siPerCommit.getFieldInfosFiles());
+      final Map<Integer, Set<String>> dvUpdatesFiles = siPerCommit.getDocValuesUpdatesFiles();
+      CodecUtil.writeBEInt(out, dvUpdatesFiles.size());
+      for (Entry<Integer, Set<String>> e : dvUpdatesFiles.entrySet()) {
+        CodecUtil.writeBEInt(out, e.getKey());
+        out.writeSetOfStrings(e.getValue());
+      }
+      outputs.add(out);
+    }
+
+    for (IndexOutput out : outputs) { //out denotes a single segments_file (custom starting with _15)
+      out.writeMapOfStrings(userData);
+      CodecUtil.writeFooter(out);
+      out.close();
+    }
+
+    return outputs;
+  }
+
+  private void writeHeader(IndexOutput out) throws IOException {
+    CodecUtil.writeIndexHeader(
+        out,
+        "segments",
+        VERSION_CURRENT,
+        StringHelper.randomId(),
+        Long.toString(generation, Character.MAX_RADIX));
+
+    out.writeVInt(Version.LATEST.major);
+    out.writeVInt(Version.LATEST.minor);
+    out.writeVInt(Version.LATEST.bugfix);
+    // System.out.println(Thread.currentThread().getName() + ": now write " + out.getName() + " with
+    // version=" + version);
+
+    out.writeVInt(indexCreatedVersionMajor);
+
+    CodecUtil.writeBELong(out, version);
+    out.writeVLong(counter); // write counter
+//    CodecUtil.writeBEInt(out, size());
+    CodecUtil.writeBEInt(out, 1);
+
+    if (size() > 0) {
+
+      Version minSegmentVersion = null;
+
+      // We do a separate loop up front so we can write the minSegmentVersion before
+      // any SegmentInfo; this makes it cleaner to throw IndexFormatTooOldExc at read time:
+      for (SegmentCommitInfo siPerCommit : this) {
+        Version segmentVersion = siPerCommit.info.getVersion();
+        if (minSegmentVersion == null || segmentVersion.onOrAfter(minSegmentVersion) == false) {
+          minSegmentVersion = segmentVersion;
+        }
+      }
+
+      out.writeVInt(minSegmentVersion.major);
+      out.writeVInt(minSegmentVersion.minor);
+      out.writeVInt(minSegmentVersion.bugfix);
+    }
+  }
+
   /**
-   * Get the generation of the most recent commit to the list of index files (N in the segments_N
-   * file).
+   * Get the generation of the most recent commit to the list of index files (N in the segments_N file).
    *
    * @param files -- array of file names to check
    */
@@ -207,8 +338,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Get the generation of the most recent commit to the index in this directory (N in the
-   * segments_N file).
+   * Get the generation of the most recent commit to the index in this directory (N in the segments_N file).
    *
    * @param directory -- directory to search for the latest segments_N file
    */
@@ -227,8 +357,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Get the filename of the segments_N file for the most recent commit to the index in this
-   * Directory.
+   * Get the filename of the segments_N file for the most recent commit to the index in this Directory.
    *
    * @param directory -- directory to search for the latest segments_N file
    */
@@ -272,8 +401,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Read a particular segmentFileName. Note that this may throw an IOException if a commit is in
-   * process.
+   * Read a particular segmentFileName. Note that this may throw an IOException if a commit is in process.
    *
    * @param directory -- directory containing the segments file
    * @param segmentFileName -- segment file to load
@@ -286,11 +414,10 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Read a particular segmentFileName, as long as the commit's {@link
-   * SegmentInfos#getIndexCreatedVersionMajor()} is strictly greater than the provided minimum
-   * supported major version. If the commit's version is older, an {@link
-   * IndexFormatTooOldException} will be thrown. Note that this may throw an IOException if a commit
-   * is in process.
+   * Read a particular segmentFileName, as long as the commit's {@link SegmentInfos#getIndexCreatedVersionMajor()} is
+   * strictly greater than the provided minimum supported major version. If the commit's version is older, an
+   * {@link IndexFormatTooOldException} will be thrown. Note that this may throw an IOException if a commit is in
+   * process.
    */
   public static final SegmentInfos readCommit(
       Directory directory, String segmentFileName, int minSupportedMajorVersion)
@@ -355,8 +482,8 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
                 + Version.LATEST
                 + " and Lucene only supports reading"
                 + (minSupportedMajorVersion == Version.MIN_SUPPORTED_MAJOR
-                    ? " the current and previous major versions"
-                    : " from version " + minSupportedMajorVersion + " upwards"));
+                ? " the current and previous major versions"
+                : " from version " + minSupportedMajorVersion + " upwards"));
       }
 
       SegmentInfos infos = new SegmentInfos(indexCreatedVersion);
@@ -528,10 +655,9 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Find the latest commit ({@code segments_N file}) and load all {@link SegmentCommitInfo}s, as
-   * long as the commit's {@link SegmentInfos#getIndexCreatedVersionMajor()} is strictly greater
-   * than the provided minimum supported major version. If the commit's version is older, an {@link
-   * IndexFormatTooOldException} will be thrown.
+   * Find the latest commit ({@code segments_N file}) and load all {@link SegmentCommitInfo}s, as long as the commit's
+   * {@link SegmentInfos#getIndexCreatedVersionMajor()} is strictly greater than the provided minimum supported major
+   * version. If the commit's version is older, an {@link IndexFormatTooOldException} will be thrown.
    */
   public static final SegmentInfos readLatestCommit(
       Directory directory, int minSupportedMajorVersion) throws IOException {
@@ -732,19 +858,17 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Prints the given message to the infoStream. Note, this method does not check for null
-   * infoStream. It assumes this check has been performed by the caller, which is recommended to
-   * avoid the (usually) expensive message creation.
+   * Prints the given message to the infoStream. Note, this method does not check for null infoStream. It assumes this
+   * check has been performed by the caller, which is recommended to avoid the (usually) expensive message creation.
    */
   private static void message(String message) {
     infoStream.println("SIS [" + Thread.currentThread().getName() + "]: " + message);
   }
 
   /**
-   * Utility class for executing code that needs to do something with the current segments file.
-   * This is necessary with lock-less commits because from the time you locate the current segments
-   * file name, until you actually open it, read its contents, or check modified time, etc., it
-   * could have been deleted due to a writer commit finishing.
+   * Utility class for executing code that needs to do something with the current segments file. This is necessary with
+   * lock-less commits because from the time you locate the current segments file name, until you actually open it, read
+   * its contents, or check modified time, etc., it could have been deleted due to a writer commit finishing.
    */
   public abstract static class FindSegmentsFile<T> {
 
@@ -835,8 +959,8 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
     }
 
     /**
-     * Subclass must implement this. The assumption is an IOException will be thrown if something
-     * goes wrong during the processing that could have been caused by a writer committing.
+     * Subclass must implement this. The assumption is an IOException will be thrown if something goes wrong during the
+     * processing that could have been caused by a writer committing.
      */
     protected abstract T doBody(String segmentFileName) throws IOException;
   }
@@ -887,9 +1011,9 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Call this to start a commit. This writes the new segments file, but writes an invalid checksum
-   * at the end, so that it is not visible to readers. Once this is called you must call {@link
-   * #finishCommit} to complete the commit or {@link #rollbackCommit} to abort it.
+   * Call this to start a commit. This writes the new segments file, but writes an invalid checksum at the end, so that
+   * it is not visible to readers. Once this is called you must call {@link #finishCommit} to complete the commit or
+   * {@link #rollbackCommit} to abort it.
    *
    * <p>Note: {@link #changed()} should be called prior to this method if changes have been made to
    * this {@link SegmentInfos} instance
@@ -903,8 +1027,7 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Returns all file names referenced by SegmentInfo. The returned collection is recomputed on each
-   * invocation.
+   * Returns all file names referenced by SegmentInfo. The returned collection is recomputed on each invocation.
    */
   public Collection<String> files(boolean includeSegmentsFile) throws IOException {
     HashSet<String> files = new HashSet<>();
@@ -1002,8 +1125,8 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Replaces all segments in this instance, but keeps generation, version, counter so that future
-   * commits remain write once.
+   * Replaces all segments in this instance, but keeps generation, version, counter so that future commits remain write
+   * once.
    */
   void replace(SegmentInfos other) {
     rollbackSegmentInfos(other.asList());
@@ -1171,8 +1294,8 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Returns which Lucene {@link Version} wrote this commit, or null if the version this index was
-   * written with did not directly record the version.
+   * Returns which Lucene {@link Version} wrote this commit, or null if the version this index was written with did not
+   * directly record the version.
    */
   public Version getCommitLuceneVersion() {
     return luceneVersion;
@@ -1184,9 +1307,9 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   }
 
   /**
-   * Return the version major that was used to initially create the index. This version is set when
-   * the index is first created and then never changes. This information was added as of version 7.0
-   * so older indices report 6 as a creation version.
+   * Return the version major that was used to initially create the index. This version is set when the index is first
+   * created and then never changes. This information was added as of version 7.0 so older indices report 6 as a
+   * creation version.
    */
   public int getIndexCreatedVersionMajor() {
     return indexCreatedVersionMajor;

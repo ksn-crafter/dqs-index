@@ -21,6 +21,12 @@ module org.apache.lucene.queryparser {
   requires org.apache.lucene.core;
   requires org.apache.lucene.queries;
   requires org.apache.lucene.sandbox;
+  requires software.amazon.awssdk.services.s3;
+  requires software.amazon.awssdk.regions;
+  requires software.amazon.awssdk.auth;
+  requires software.amazon.awssdk.core;
+  requires software.amazon.awssdk.thirdparty.jackson.core;
+  requires com.fasterxml.jackson.databind;
 
   exports org.apache.lucene.queryparser.charstream;
   exports org.apache.lucene.queryparser.classic;

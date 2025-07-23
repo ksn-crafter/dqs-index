@@ -38,7 +38,7 @@ public class SegmentCommitInfo {
   public final SegmentInfo info;
 
   /** Id that uniquely identifies this segment commit. */
-  private byte[] id;
+  public byte[] id;
 
   // How many deleted docs in the segment:
   private int delCount;

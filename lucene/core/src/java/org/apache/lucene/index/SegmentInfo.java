@@ -58,7 +58,7 @@ public final class SegmentInfo {
   private boolean isCompoundFile;
 
   /** Id that uniquely identifies this segment. */
-  private final byte[] id;
+  public final byte[] id;
 
   private Codec codec;
 
