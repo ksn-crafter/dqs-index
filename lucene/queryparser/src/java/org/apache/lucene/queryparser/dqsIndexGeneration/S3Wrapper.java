@@ -10,13 +10,10 @@ import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
 import software.amazon.awssdk.services.s3.model.S3Object;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.zip.GZIPInputStream;
 
-public class S3FileDownloader {
+public class S3Wrapper {
   public List<String> getAllFileKeys(String bucketName, String folderPrefix) {
     List<String> filePaths = new ArrayList<>();
     String continuationToken = null;

@@ -30,13 +30,17 @@ public class Main {
 
     String bucketName = "dqs-poc-data";
     String prefix = "128MB-chunks/Wiki/";
-    S3FileDownloader s3FileDownloader = new S3FileDownloader();
+    S3Wrapper s3Wrapper = new S3Wrapper();
 
-    List<String> s3Keys = s3FileDownloader.getAllFileKeys(bucketName, prefix);
+    List<String> s3Keys = s3Wrapper.getAllFileKeys(bucketName, prefix);
     DqsIndexGenerator dqsIndexGenerator = new DqsIndexGenerator();
     s3Keys.forEach(s3Key -> {
       Thread.ofVirtual().start(()->{
+        try {
           dqsIndexGenerator.generateIndex(s3Key);
+        } catch (IOException e) {
+          throw new RuntimeException(e);
+        }
       });
     });
   }
