@@ -61,8 +61,8 @@ public class DqsIndexGenerator {
       s3Adapter.uploadToS3(tempIndexDir, "dqs-indexes/" + tempIndexDir.getFileName().toString());
       IOUtils.rm(tempIndexDir);
     } catch (IOException e) {
-      //      e.printStackTrace();
-      throw e;
+      e.printStackTrace();
+      //      throw e;
     }
   }
 
@@ -88,8 +88,8 @@ public class DqsIndexGenerator {
         writer.addDocuments(documents);
       }
     } catch (Exception e) {
-      throw e;
-      //      System.out.println("Error while creating index for file: " + " " + e.getMessage());
+      //      throw e;
+      System.out.println("Error while creating index for file: " + " " + e.getMessage());
     } finally {
       // TODO: see if this close messes up anything
       // luceneDirectory.close();

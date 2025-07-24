@@ -86,7 +86,7 @@ public class ApplyForbiddenApisPlugin extends LuceneGradlePlugin {
         .matching(task -> task.getName().matches("forbiddenApisMain\\d*|forbiddenApisTools"))
         .configureEach(
             task -> {
-              task.getBundledSignatures().add("jdk-system-out");
+              //                            task.getBundledSignatures().add("jdk-system-out");
 
               String ruleGroup =
                   switch (project.getPath()) {
