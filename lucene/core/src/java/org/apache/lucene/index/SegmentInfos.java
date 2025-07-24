@@ -37,6 +37,8 @@ import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.DocValuesFormat;
 import org.apache.lucene.codecs.FieldInfosFormat;
 import org.apache.lucene.codecs.LiveDocsFormat;
+import org.apache.lucene.store.ByteBuffersDataOutput;
+import org.apache.lucene.store.ByteBuffersIndexOutput;
 import org.apache.lucene.store.ChecksumIndexInput;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.DataOutput;
@@ -188,93 +190,89 @@ public final class SegmentInfos implements Cloneable, Iterable<SegmentCommitInfo
   * is written as an individual segment so that each segment
   * becomes searchable independently
   * **/
-  public List<IndexOutput> writeSeparateSegmentsNFiles(Directory directory) throws IOException {
-    List<IndexOutput> outputs = new ArrayList<>();
+ public List<ByteBuffersIndexOutput> writeSeparateSegmentsInBuffer() throws IOException {
+   List<ByteBuffersIndexOutput> outputs = new ArrayList<>();
 
-    // write infos
-    long counter = this.generation - 1;
-    for (SegmentCommitInfo siPerCommit : this) {
-      IndexOutput out =
-          directory.createOutput(String.format("segments_%d_part_%d", this.generation, counter), IOContext.DEFAULT);
-      System.out.println("Inside writeSeparateSegmentsNFiles .. indexoutput = " + out.getClass());
-      System.out.println("Inside writeSeparateSegmentsNFiles .. indexoutput = " + out.getName());
+   long counter = this.generation-1;
+   for (SegmentCommitInfo siPerCommit : this) {
+     String name = String.format("segments_%d_part_%d", this.generation, counter);
+     ByteBuffersDataOutput dataOutput = new ByteBuffersDataOutput();
+     ByteBuffersIndexOutput out = new ByteBuffersIndexOutput(dataOutput, "", name);
 
-      counter += 1;
-      this.writeHeader(out);
+     counter += 1;
+     this.writeHeader(out);
 
-      SegmentInfo si = siPerCommit.info;
-      if (indexCreatedVersionMajor >= 7 && si.minVersion == null) {
-        throw new IllegalStateException(
-            "Segments must record minVersion if they have been created on or after Lucene 7: "
-                + si);
-      }
-      out.writeString(si.name);
-      byte[] segmentID = si.getId();
-      if (segmentID.length != StringHelper.ID_LENGTH) {
-        throw new IllegalStateException(
-            "cannot write segment: invalid id segment="
-                + si.name
-                + "id="
-                + StringHelper.idToString(segmentID));
-      }
-      out.writeBytes(segmentID, segmentID.length);
-      out.writeString(si.getCodec().getName());
+     SegmentInfo si = siPerCommit.info;
+     if (indexCreatedVersionMajor >= 7 && si.minVersion == null) {
+       throw new IllegalStateException(
+           "Segments must record minVersion if they have been created on or after Lucene 7: "
+               + si);
+     }
+     out.writeString(si.name);
+     byte[] segmentID = si.getId();
+     if (segmentID.length != StringHelper.ID_LENGTH) {
+       throw new IllegalStateException(
+           "cannot write segment: invalid id segment="
+               + si.name
+               + "id="
+               + StringHelper.idToString(segmentID));
+     }
+     out.writeBytes(segmentID, segmentID.length);
+     out.writeString(si.getCodec().getName());
 
-      CodecUtil.writeBELong(out, siPerCommit.getDelGen());
-      int delCount = siPerCommit.getDelCount();
-      if (delCount < 0 || delCount > si.maxDoc()) {
-        throw new IllegalStateException(
-            "cannot write segment: invalid maxDoc segment="
-                + si.name
-                + " maxDoc="
-                + si.maxDoc()
-                + " delCount="
-                + delCount);
-      }
-      CodecUtil.writeBEInt(out, delCount);
-      CodecUtil.writeBELong(out, siPerCommit.getFieldInfosGen());
-      CodecUtil.writeBELong(out, siPerCommit.getDocValuesGen());
-      int softDelCount = siPerCommit.getSoftDelCount();
-      if (softDelCount < 0 || softDelCount > si.maxDoc()) {
-        throw new IllegalStateException(
-            "cannot write segment: invalid maxDoc segment="
-                + si.name
-                + " maxDoc="
-                + si.maxDoc()
-                + " softDelCount="
-                + softDelCount);
-      }
-      CodecUtil.writeBEInt(out, softDelCount);
-      // we ensure that there is a valid ID for this SCI just in case
-      // this is manually upgraded outside of IW
-      byte[] sciId = siPerCommit.getId();
-      if (sciId != null) {
-        out.writeByte((byte) 1);
-        assert sciId.length == StringHelper.ID_LENGTH
-            : "invalid SegmentCommitInfo#id: " + Arrays.toString(sciId);
-        out.writeBytes(sciId, 0, sciId.length);
-      } else {
-        out.writeByte((byte) 0);
-      }
+     CodecUtil.writeBELong(out, siPerCommit.getDelGen());
+     int delCount = siPerCommit.getDelCount();
+     if (delCount < 0 || delCount > si.maxDoc()) {
+       throw new IllegalStateException(
+           "cannot write segment: invalid maxDoc segment="
+               + si.name
+               + " maxDoc="
+               + si.maxDoc()
+               + " delCount="
+               + delCount);
+     }
+     CodecUtil.writeBEInt(out, delCount);
+     CodecUtil.writeBELong(out, siPerCommit.getFieldInfosGen());
+     CodecUtil.writeBELong(out, siPerCommit.getDocValuesGen());
+     int softDelCount = siPerCommit.getSoftDelCount();
+     if (softDelCount < 0 || softDelCount > si.maxDoc()) {
+       throw new IllegalStateException(
+           "cannot write segment: invalid maxDoc segment="
+               + si.name
+               + " maxDoc="
+               + si.maxDoc()
+               + " softDelCount="
+               + softDelCount);
+     }
+     CodecUtil.writeBEInt(out, softDelCount);
+     // we ensure that there is a valid ID for this SCI just in case
+     // this is manually upgraded outside of IW
+     byte[] sciId = siPerCommit.getId();
+     if (sciId != null) {
+       out.writeByte((byte) 1);
+       assert sciId.length == StringHelper.ID_LENGTH
+           : "invalid SegmentCommitInfo#id: " + Arrays.toString(sciId);
+       out.writeBytes(sciId, 0, sciId.length);
+     } else {
+       out.writeByte((byte) 0);
+     }
 
-      out.writeSetOfStrings(siPerCommit.getFieldInfosFiles());
-      final Map<Integer, Set<String>> dvUpdatesFiles = siPerCommit.getDocValuesUpdatesFiles();
-      CodecUtil.writeBEInt(out, dvUpdatesFiles.size());
-      for (Entry<Integer, Set<String>> e : dvUpdatesFiles.entrySet()) {
-        CodecUtil.writeBEInt(out, e.getKey());
-        out.writeSetOfStrings(e.getValue());
-      }
-      outputs.add(out);
-    }
+     out.writeSetOfStrings(siPerCommit.getFieldInfosFiles());
+     final Map<Integer, Set<String>> dvUpdatesFiles = siPerCommit.getDocValuesUpdatesFiles();
+     CodecUtil.writeBEInt(out, dvUpdatesFiles.size());
+     for (Entry<Integer, Set<String>> e : dvUpdatesFiles.entrySet()) {
+       CodecUtil.writeBEInt(out, e.getKey());
+       out.writeSetOfStrings(e.getValue());
+     }
+     outputs.add(out);
+   }
 
-    for (IndexOutput out : outputs) { //out denotes a single segments_file (custom starting with _15)
-      out.writeMapOfStrings(userData);
-      CodecUtil.writeFooter(out);
-      out.close();
-    }
-
-    return outputs;
-  }
+   for (IndexOutput out : outputs) {
+     out.writeMapOfStrings(userData);
+     CodecUtil.writeFooter(out);
+   }
+   return outputs;
+ }
 
   private void writeHeader(IndexOutput out) throws IOException {
     CodecUtil.writeIndexHeader(
