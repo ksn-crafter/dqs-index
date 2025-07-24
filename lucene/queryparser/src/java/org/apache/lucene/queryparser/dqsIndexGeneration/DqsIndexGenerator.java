@@ -1,3 +1,20 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
 package org.apache.lucene.queryparser.dqsIndexGeneration;
 
 import com.fasterxml.jackson.core.JsonParser;
@@ -5,6 +22,17 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.BufferedOutputStream;
+import java.io.BufferedReader;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.zip.GZIPInputStream;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
@@ -16,16 +44,6 @@ import org.apache.lucene.store.ByteBuffersIndexOutput;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.MMapDirectory;
 import org.apache.lucene.util.IOUtils;
-import java.io.BufferedOutputStream;
-import java.io.BufferedReader;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.zip.GZIPInputStream;
 
 public class DqsIndexGenerator {
 
@@ -34,14 +52,17 @@ public class DqsIndexGenerator {
     Path tempIndexDir = Files.createTempDirectory(fileName.substring(0, fileName.indexOf(".")));
     S3Adapter s3Adapter = new S3Adapter();
 
-    try (GZIPInputStream gzipInputStream = new GZIPInputStream(s3Adapter.download("dqs-poc-data", s3Key));
-        BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(gzipInputStream))) {
+    try (GZIPInputStream gzipInputStream =
+            new GZIPInputStream(s3Adapter.download("dqs-poc-data", s3Key));
+        BufferedReader bufferedReader =
+            new BufferedReader(new InputStreamReader(gzipInputStream, StandardCharsets.UTF_8))) {
       writeIndex(bufferedReader, tempIndexDir);
 
       s3Adapter.uploadToS3(tempIndexDir, "dqs-indexes/" + tempIndexDir.getFileName().toString());
       IOUtils.rm(tempIndexDir);
     } catch (IOException e) {
-      e.printStackTrace();
+      //      e.printStackTrace();
+      throw e;
     }
   }
 
@@ -67,10 +88,11 @@ public class DqsIndexGenerator {
         writer.addDocuments(documents);
       }
     } catch (Exception e) {
-      System.out.println("Error while creating index for file: " + " " + e.getMessage());
+      throw e;
+      //      System.out.println("Error while creating index for file: " + " " + e.getMessage());
     } finally {
-      //TODO: see if this close messes up anything
-      //luceneDirectory.close();
+      // TODO: see if this close messes up anything
+      // luceneDirectory.close();
       writer.commit();
     }
 
@@ -78,7 +100,8 @@ public class DqsIndexGenerator {
   }
 
   private void writeSplits(IndexWriter writer, Path directory) throws IOException {
-    List<ByteBuffersIndexOutput> segmentBuffers = writer.segmentInfos.writeSeparateSegmentsInBuffer();
+    List<ByteBuffersIndexOutput> segmentBuffers =
+        writer.segmentInfos.writeSeparateSegmentsInBuffer();
     assert segmentBuffers.size() == writer.segmentInfos.size();
 
     int index = 0;
@@ -87,7 +110,8 @@ public class DqsIndexGenerator {
       Path outputPath = directory.resolve("split" + segmentName);
 
       try (DataOutputStream out =
-          new DataOutputStream(new BufferedOutputStream(Files.newOutputStream(outputPath.toAbsolutePath())))) {
+          new DataOutputStream(
+              new BufferedOutputStream(Files.newOutputStream(outputPath.toAbsolutePath())))) {
 
         byte[] cfeBytes = Files.readAllBytes(directory.resolve(segmentName + ".cfe"));
         byte[] cfsBytes = Files.readAllBytes(directory.resolve(segmentName + ".cfs"));

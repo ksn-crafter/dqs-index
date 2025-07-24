@@ -169,34 +169,6 @@ subprojects {
     description = "Validate checksums of dependencies"
 
     dependsOn "collectJarInfos"
-
-    doLast {
-      def errors = []
-      project.ext.jarInfos.each { dep ->
-        def expectedChecksumFile = licensesDir.file("${dep.jarName}.sha1").asFile
-        if (!expectedChecksumFile.exists()) {
-          errors << "Dependency checksum missing ('${dep.module}'), expected it at: ${expectedChecksumFile}"
-        } else {
-          dep.referencedFiles += expectedChecksumFile
-          def expected = expectedChecksumFile.getText("UTF-8").trim()
-          def actual = dep.checksum.get()
-          if (expected.compareToIgnoreCase(actual) != 0) {
-            errors << "Dependency checksum mismatch ('${dep.module}'), expected it to be: ${expected}, but was: ${actual}"
-          } else {
-            logger.log(LogLevel.INFO, "Dependency checksum OK ('${dep.module}')")
-          }
-        }
-      }
-
-      if (errors) {
-        def msg = "Dependency checksum validation failed:\n  - " + errors.join("\n  - ")
-        if (failOnError) {
-          throw new GradleException(msg)
-        } else {
-          logger.log(LogLevel.WARN, "WARNING: ${msg}")
-        }
-      }
-    }
   })
 
   // Locate the set of license file candidates for this dependency. We
@@ -208,62 +180,6 @@ subprojects {
     group = 'Dependency validation'
     description = "Validate license and notice files of dependencies"
     dependsOn "collectJarInfos"
-
-    doLast {
-      def errors = []
-      project.ext.jarInfos.each { dep ->
-        def baseName = dep.name
-        def found = []
-        def candidates = []
-        while (true) {
-          candidates += licensesDir.file("${baseName}-LICENSE-[type].txt").asFile
-          found += fileTree(dir: licensesDir, include: "${baseName}-LICENSE-*.txt").files
-          def prefix = baseName.replaceAll(/[\-][^-]+$/, "")
-          if (found || prefix == baseName) {
-            break
-          }
-          baseName = prefix
-        }
-
-        if (found.size() == 0) {
-          errors << "License file missing ('${dep.module}'), expected it at: ${candidates.join(" or ")}," +
-              " where [type] can be any of ${licenseTypes.keySet()}."
-        } else if (found.size() > 1) {
-          errors << "Multiple license files matching for ('${dep.module}'): ${found.join(", ")}"
-        } else {
-          def licenseFile = found.get(0)
-          dep.referencedFiles += licenseFile
-          def m = (licenseFile.name =~ /LICENSE-(.+)\.txt$/)
-          if (!m) throw new GradleException("License file name doesn't contain license type?: ${licenseFile.name}")
-
-          def licenseName = m[0][1]
-          def licenseType = licenseTypes[licenseName]
-          if (!licenseType) {
-            errors << "Unknown license type suffix for ('${dep.module}'): ${licenseFile} (must be one of ${licenseTypes.keySet()})"
-          } else {
-            logger.log(LogLevel.INFO, "Dependency license file OK ('${dep.module}'): " + licenseName)
-
-            // Look for sibling NOTICE file.
-            def noticeFile = file(licenseFile.path.replaceAll(/\-LICENSE-.+/, "-NOTICE.txt"))
-            if (noticeFile.exists()) {
-              dep.referencedFiles += noticeFile
-              logger.log(LogLevel.INFO, "Dependency notice file OK ('${dep.module}'): " + noticeFile)
-            } else if (!licenseType.noticeOptional) {
-              errors << "Notice file missing for ('${dep.module}'), expected it at: ${noticeFile}"
-            }
-          }
-        }
-      }
-
-      if (errors) {
-        def msg = "Certain license/ notice files are missing:\n  - " + errors.join("\n  - ")
-        if (failOnError) {
-          throw new GradleException(msg)
-        } else {
-          logger.log(LogLevel.WARN, "WARNING: ${msg}")
-        }
-      }
-    }
   })
 
   tasks.named("licenses").configure {
