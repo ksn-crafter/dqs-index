@@ -169,7 +169,7 @@ public class DqsIndexGenerator {
     }
 
     JsonNode bccNode = jsonNode.get("bcc");
-    if (fromNode != null) {
+    if (bccNode != null) {
        doc.add(new TextField("bcc", bccNode.get("mailId").asText() + " " + bccNode.get("name").asText(), Field.Store.NO));
     }
 
