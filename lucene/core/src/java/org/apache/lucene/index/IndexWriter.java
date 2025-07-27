@@ -280,7 +280,7 @@ public class IndexWriter
 
   private Collection<String> filesToCommit;
 
-  private final SegmentInfos segmentInfos;
+  public final SegmentInfos segmentInfos;
   final FieldNumbers globalFieldNumberMap;
 
   final DocumentsWriter docWriter;
