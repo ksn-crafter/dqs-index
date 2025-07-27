@@ -48,21 +48,26 @@ import org.apache.lucene.util.IOUtils;
 public class DqsIndexGenerator {
 
   public void generateIndex(String s3Key) throws IOException {
-    String fileName = s3Key.substring(s3Key.lastIndexOf("/") + 1);
-    Path tempIndexDir = Files.createTempDirectory(fileName.substring(0, fileName.indexOf(".")));
-    S3Adapter s3Adapter = new S3Adapter();
+    try {
+      String fileName = s3Key.substring(s3Key.lastIndexOf("/") + 1);
+      Path tempIndexDir = Files.createTempDirectory(fileName.substring(0, fileName.indexOf(".")));
+      S3Adapter s3Adapter = new S3Adapter();
 
-    try (GZIPInputStream gzipInputStream =
-            new GZIPInputStream(s3Adapter.download("dqs-poc-data", s3Key));
-        BufferedReader bufferedReader =
-            new BufferedReader(new InputStreamReader(gzipInputStream, StandardCharsets.UTF_8))) {
-      writeIndex(bufferedReader, tempIndexDir);
+      try (GZIPInputStream gzipInputStream =
+          new GZIPInputStream(s3Adapter.download("dqs-poc-data", s3Key));
+          BufferedReader bufferedReader =
+              new BufferedReader(new InputStreamReader(gzipInputStream, StandardCharsets.UTF_8))) {
+        writeIndex(bufferedReader, tempIndexDir);
 
-      s3Adapter.uploadToS3(tempIndexDir, "dqs-indexes/" + tempIndexDir.getFileName().toString());
-      IOUtils.rm(tempIndexDir);
-    } catch (IOException e) {
-      e.printStackTrace();
-      //      throw e;
+        //s3Adapter.uploadToS3(tempIndexDir, "dqs-indexes/" + tempIndexDir.getFileName().toString());
+        //IOUtils.rm(tempIndexDir);
+        System.out.println(tempIndexDir.toAbsolutePath());
+        System.out.println("Completed indexing");
+      } catch (IOException e) {
+        System.out.println("Error while creating index for file: " + s3Key + " " + e.getMessage());
+      }
+    }catch(Exception e){
+      System.out.println("Error while creating index for file: " + s3Key + " " + e.getMessage());
     }
   }
 
@@ -88,7 +93,6 @@ public class DqsIndexGenerator {
         writer.addDocuments(documents);
       }
     } catch (Exception e) {
-      //      throw e;
       System.out.println("Error while creating index for file: " + " " + e.getMessage());
     } finally {
       // TODO: see if this close messes up anything
@@ -97,48 +101,53 @@ public class DqsIndexGenerator {
     }
 
     writeSplits(writer, outputIndexDir);
+
   }
 
   private void writeSplits(IndexWriter writer, Path directory) throws IOException {
-    List<ByteBuffersIndexOutput> segmentBuffers =
-        writer.segmentInfos.writeSeparateSegmentsInBuffer();
-    assert segmentBuffers.size() == writer.segmentInfos.size();
+    try {
+      List<ByteBuffersIndexOutput> segmentBuffers =
+          writer.segmentInfos.writeSeparateSegmentsInBuffer();
+      assert segmentBuffers.size() == writer.segmentInfos.size();
 
-    int index = 0;
-    for (SegmentCommitInfo segmentCommitInfo : writer.segmentInfos) {
-      String segmentName = segmentCommitInfo.info.name;
-      Path outputPath = directory.resolve("split" + segmentName);
+      int index = 0;
+      for (SegmentCommitInfo segmentCommitInfo : writer.segmentInfos) {
+        String segmentName = segmentCommitInfo.info.name;
+        Path outputPath = directory.resolve("split" + segmentName);
 
-      try (DataOutputStream out =
-          new DataOutputStream(
-              new BufferedOutputStream(Files.newOutputStream(outputPath.toAbsolutePath())))) {
+        try (DataOutputStream out =
+            new DataOutputStream(
+                new BufferedOutputStream(Files.newOutputStream(outputPath.toAbsolutePath())))) {
 
-        byte[] cfeBytes = Files.readAllBytes(directory.resolve(segmentName + ".cfe"));
-        byte[] cfsBytes = Files.readAllBytes(directory.resolve(segmentName + ".cfs"));
-        byte[] siBytes = Files.readAllBytes(directory.resolve(segmentName + ".si"));
-        byte[] segmentsBytes = segmentBuffers.get(index).toArrayCopy();
+          byte[] cfeBytes = Files.readAllBytes(directory.resolve(segmentName + ".cfe"));
+          byte[] cfsBytes = Files.readAllBytes(directory.resolve(segmentName + ".cfs"));
+          byte[] siBytes = Files.readAllBytes(directory.resolve(segmentName + ".si"));
+          byte[] segmentsBytes = segmentBuffers.get(index).toArrayCopy();
 
-        // Write cfeBytes
-        out.writeInt(cfeBytes.length);
-        out.write(cfeBytes);
+          // Write cfeBytes
+          out.writeInt(cfeBytes.length);
+          out.write(cfeBytes);
 
-        // Write cfsBytes
-        out.writeInt(cfsBytes.length);
-        out.write(cfsBytes);
+          // Write cfsBytes
+          out.writeInt(cfsBytes.length);
+          out.write(cfsBytes);
 
-        // Write siBytes
-        out.writeInt(siBytes.length);
-        out.write(siBytes);
+          // Write siBytes
+          out.writeInt(siBytes.length);
+          out.write(siBytes);
 
-        // Write segments's generation
-        out.writeLong(writer.segmentInfos.getGeneration());
+          // Write segments's generation
+          out.writeLong(writer.segmentInfos.getGeneration());
 
-        // Write segmentsBytes
-        out.writeInt(segmentsBytes.length);
-        out.write(segmentsBytes);
+          // Write segmentsBytes
+          out.writeInt(segmentsBytes.length);
+          out.write(segmentsBytes);
 
-        index += 1;
+          index += 1;
+        }
       }
+    }catch(Exception e){
+      System.out.println("Error while creating split for file: " + " " + e.getMessage());
     }
   }
 
@@ -149,10 +158,30 @@ public class DqsIndexGenerator {
     doc.add(new TextField("subject", jsonNode.get("subject").toString(), Field.Store.NO));
     doc.add(new TextField("body", jsonNode.get("body").toString(), Field.Store.NO));
     doc.add(new TextField("date", jsonNode.get("date").toString(), Field.Store.NO));
-    doc.add(new TextField("from", jsonNode.get("from").toString(), Field.Store.NO));
-    doc.add(new TextField("to", jsonNode.get("to").toString(), Field.Store.NO));
-    doc.add(new TextField("cc", jsonNode.get("cc").toString(), Field.Store.NO));
-    doc.add(new TextField("bcc", jsonNode.get("bcc").toString(), Field.Store.NO));
+//    doc.add(new TextField("from", jsonNode.get("from").toString(), Field.Store.NO));
+//    doc.add(new TextField("to", jsonNode.get("to").toString(), Field.Store.NO));
+//    doc.add(new TextField("cc", jsonNode.get("cc").toString(), Field.Store.NO));
+//    doc.add(new TextField("bcc", jsonNode.get("bcc").toString(), Field.Store.NO));
+
+    JsonNode fromNode = jsonNode.get("from");
+    if (fromNode != null) {
+       doc.add(new TextField("from", fromNode.get("mailId").asText() + " " + fromNode.get("name").asText(), Field.Store.NO));
+    }
+
+    JsonNode bccNode = jsonNode.get("bcc");
+    if (fromNode != null) {
+       doc.add(new TextField("bcc", bccNode.get("mailId").asText() + " " + bccNode.get("name").asText(), Field.Store.NO));
+    }
+
+    JsonNode toNode = jsonNode.get("to");
+    if (toNode != null) {
+       doc.add(new TextField("to", toNode.get("mailId").asText() + " " + toNode.get("name").asText(), Field.Store.NO));
+    }
+
+    JsonNode ccNode = jsonNode.get("cc");
+    if (ccNode != null) {
+       doc.add(new TextField("cc", ccNode.get("mailId").asText() + " " + ccNode.get("name").asText(), Field.Store.NO));
+    }
 
     return doc;
   }

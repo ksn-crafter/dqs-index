@@ -47,11 +47,10 @@ public class S3Adapter {
     try (S3Client s3Client = createS3Client()) {
       do {
         // Build the request
-        ListObjectsV2Request.Builder requestBuilder =
-            ListObjectsV2Request.builder()
-                .bucket(bucketName)
-                .prefix(folderPrefix)
-                .maxKeys(1000); // Maximum allowed per request
+        ListObjectsV2Request.Builder requestBuilder = ListObjectsV2Request.builder()
+            .bucket(bucketName)
+            .prefix(folderPrefix)
+            .maxKeys(1000); // Maximum allowed per request
 
         // Add continuation token if we have one (for pagination)
         if (continuationToken != null) {
@@ -77,11 +76,7 @@ public class S3Adapter {
           // Get continuation token for next batch
           continuationToken = response.nextContinuationToken();
 
-          //          System.out.println(
-          //              "Fetched "
-          //                  + response.contents().size()
-          //                  + " objects. Total so far: "
-          //                  + filePaths.size());
+          System.out.println("Fetched " + response.contents().size() + " objects. Total so far: " + filePaths.size());
 
         } catch (Exception e) {
           throw e;
@@ -94,14 +89,14 @@ public class S3Adapter {
   }
 
   public ResponseInputStream<GetObjectResponse> download(String bucketName, String s3Key) {
-    GetObjectRequest getObjectRequest =
-        GetObjectRequest.builder().bucket(bucketName).key(s3Key).build();
-    try (S3Client s3Client = createS3Client()) {
+    GetObjectRequest getObjectRequest = GetObjectRequest.builder().bucket(bucketName).key(s3Key).build();
+    try {
+      S3Client s3Client = createS3Client();
       return s3Client.getObject(getObjectRequest);
     } catch (Exception e) {
-      //      System.out.println("Error downloading file from S3: " + e.getMessage());
-      throw e;
+      System.out.println("Error downloading file from S3: " + e.getMessage());
     }
+    return null;
   }
 
   private S3Client createS3Client() {
@@ -110,31 +105,25 @@ public class S3Adapter {
 
     return S3Client.builder()
         .region(Region.US_EAST_1)
-        .credentialsProvider(
-            StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
+        .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey)))
         .build();
   }
 
   public void uploadToS3(Path directoryPath, String s3Prefix) throws IOException {
     try (Stream<Path> paths = Files.walk(directoryPath)) {
-      paths
-          .filter(Files::isRegularFile)
+      paths.filter(Files::isRegularFile)
           .filter(filePath -> filePath.getFileName().toString().startsWith("split"))
-          .forEach(
-              filePath -> {
-                try {
-                  uploadFile(directoryPath, filePath, "dqs-poc-indexes", s3Prefix);
-                } catch (Exception e) {
-                  throw new RuntimeException(e);
-                  // System.err.println("Failed to upload " + filePath + ": " + e.getMessage());
-                  //                  e.printStackTrace();
-                }
-              });
+          .forEach(filePath -> {
+            try {
+              uploadFile(directoryPath, filePath, "dqs-poc-indexes", s3Prefix);
+            } catch (Exception e) {
+               System.err.println("Failed to upload " + filePath + ": " + e.getMessage());
+            }
+          });
     }
   }
 
-  private void uploadFile(Path sourceDir, Path filePath, String bucketName, String s3Prefix)
-      throws IOException {
+  private void uploadFile(Path sourceDir, Path filePath, String bucketName, String s3Prefix) throws IOException {
     // Calculate relative path from source directory
     Path relativePath = sourceDir.relativize(filePath);
 
@@ -155,7 +144,7 @@ public class S3Adapter {
       // System.out.println("Uploaded: " + filePath + " -> s3://" + bucketName + "/" + s3Key);
 
     } catch (S3Exception e) {
-      throw new RuntimeException("Failed to upload file to S3: " + e.getMessage(), e);
+      System.out.println("Failed to upload file to S3: " + e.getMessage());
     }
   }
 }
