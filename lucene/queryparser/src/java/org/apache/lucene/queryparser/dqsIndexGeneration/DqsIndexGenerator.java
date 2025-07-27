@@ -154,35 +154,54 @@ public class DqsIndexGenerator {
   private static Document generateLuceneDocument(JsonNode jsonNode) throws JsonProcessingException {
     Document doc = new Document();
 
-    doc.add(new TextField("id", jsonNode.get("id").toString(), Field.Store.YES));
-    doc.add(new TextField("subject", jsonNode.get("subject").toString(), Field.Store.NO));
-    doc.add(new TextField("body", jsonNode.get("body").toString(), Field.Store.NO));
-    doc.add(new TextField("date", jsonNode.get("date").toString(), Field.Store.NO));
+    try {
+      doc.add(new TextField("id", jsonNode.get("id").toString(), Field.Store.YES));
+      doc.add(new TextField("subject", jsonNode.get("subject").toString(), Field.Store.NO));
+      doc.add(new TextField("body", jsonNode.get("body").toString(), Field.Store.NO));
+      doc.add(new TextField("date", jsonNode.get("date").toString(), Field.Store.NO));
 //    doc.add(new TextField("from", jsonNode.get("from").toString(), Field.Store.NO));
 //    doc.add(new TextField("to", jsonNode.get("to").toString(), Field.Store.NO));
 //    doc.add(new TextField("cc", jsonNode.get("cc").toString(), Field.Store.NO));
 //    doc.add(new TextField("bcc", jsonNode.get("bcc").toString(), Field.Store.NO));
 
-    JsonNode fromNode = jsonNode.get("from");
-    if (fromNode != null) {
-       doc.add(new TextField("from", fromNode.get("mailId").asText() + " " + fromNode.get("name").asText(), Field.Store.NO));
-    }
+      JsonNode fromNode = jsonNode.get("from");
+      if (fromNode != null) {
+         doc.add(new TextField("from", fromNode.get("mailId").asText() + " " + fromNode.get("name").asText(), Field.Store.NO));
+      }
 
-    JsonNode bccNode = jsonNode.get("bcc");
-    if (bccNode != null) {
-       doc.add(new TextField("bcc", bccNode.get("mailId").asText() + " " + bccNode.get("name").asText(), Field.Store.NO));
-    }
-
-    JsonNode toNode = jsonNode.get("to");
-    if (toNode != null) {
-       doc.add(new TextField("to", toNode.get("mailId").asText() + " " + toNode.get("name").asText(), Field.Store.NO));
-    }
-
-    JsonNode ccNode = jsonNode.get("cc");
-    if (ccNode != null) {
-       doc.add(new TextField("cc", ccNode.get("mailId").asText() + " " + ccNode.get("name").asText(), Field.Store.NO));
+      addEmailArrayFields(doc, jsonNode.get("to"), "to");
+      addEmailArrayFields(doc, jsonNode.get("cc"), "cc");
+      addEmailArrayFields(doc, jsonNode.get("bcc"), "bcc");
+    } catch (Exception e) {
+      System.out.println("Error occured while creating lucene document: " + e.getMessage());
     }
 
     return doc;
   }
+
+  private static void addEmailArrayFields(Document doc, JsonNode arrayNode, String fieldPrefix) {
+    if (arrayNode != null && arrayNode.isArray()) {
+      StringBuilder allEmails = new StringBuilder();
+      StringBuilder allNames = new StringBuilder();
+
+      for (JsonNode emailNode : arrayNode) {
+        String email = emailNode.get("mailId").asText();
+        String name = emailNode.get("name").asText();
+
+        //doc.add(new TextField(fieldPrefix + "_email", email, Field.Store.NO));
+        //doc.add(new TextField(fieldPrefix + "_name", name, Field.Store.NO));
+
+        if (allEmails.length() > 0) {
+          allEmails.append(" ");
+          allNames.append(" ");
+        }
+        allEmails.append(email);
+        allNames.append(name);
+      }
+
+      doc.add(new TextField(fieldPrefix, allEmails + " " + allNames, Field.Store.NO));
+    }
+  }
+
+
 }
